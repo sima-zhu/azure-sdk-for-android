@@ -38,7 +38,10 @@ param(
 
   [Parameter(Mandatory = $true)]
   $PRTitle,
-  $PRBody = $PRTitle
+  $PRBody = $PRTitle,
+
+  [Parameter(Mandatory = $false)]
+  $PRLabels
 )
 
 $headers = @{
@@ -46,6 +49,33 @@ $headers = @{
 }
 
 $query = "state=open&head=${PROwner}:${PRBranch}&base=${BaseBranch}"
+
+function AddLabels([int] $prNumber, [string] $prLabelString)
+{
+  # Adding labels to the pr.
+  if (-not $prLabelString) {
+    Write-Verbose "There are no labels added to the PR."
+    return
+  }
+
+  # Parse the labels from string to array
+  $prLabels = @($prLabelString.Split(",") | % { $_.Trim() } | ? { return $_ })
+  $prLabelUri = "https://api.github.com/repos/$RepoOwner/$RepoName/issues/$prNumber"
+  $labelRequestData = @{
+    maintainer_can_modify = $true
+    labels                = $prLabels
+  }
+  try {
+    $resp = Invoke-RestMethod -Method PATCH -Headers $headers $prLabelUri -Body ($labelRequestData | ConvertTo-Json)
+  }
+  catch {
+      Write-Error "Invoke-RestMethod $prLabelUri failed with exception:`n$_"
+      exit 1
+  }
+
+  $resp | Write-Verbose
+  Write-Host -f green "Label added to pull request: https://github.com/$RepoOwner/$RepoName/pull/$prNumber"
+}
 
 try {
   $resp = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/$RepoOwner/$RepoName/pulls?$query"
@@ -61,6 +91,7 @@ if ($resp.Count -gt 0) {
 
     # setting variable to reference the pull request by number
     Write-Host "##vso[task.setvariable variable=Submitted.PullRequest.Number]$($resp[0].number)"
+    AddLabels $resp[0].number $PRLabels
 }
 else {
   $data = @{
@@ -74,7 +105,7 @@ else {
   try {
     $resp = Invoke-RestMethod -Method POST -Headers $headers `
                               "https://api.github.com/repos/$RepoOwner/$RepoName/pulls" `
-                              -Body ($data | ConvertTo-Json)                      
+                              -Body ($data | ConvertTo-Json)     
   }
   catch {
     Write-Error "Invoke-RestMethod [https://api.github.com/repos/$RepoOwner/$RepoName/pulls] failed with exception:`n$_"
@@ -86,4 +117,6 @@ else {
 
   # setting variable to reference the pull request by number
   Write-Host "##vso[task.setvariable variable=Submitted.PullRequest.Number]$($resp.number)"
+
+  AddLabelsAddLabels $resp[0].number $PRLabels
 }
